@@ -2,12 +2,11 @@ pragma solidity ^0.4.2;
 
 contract Escrow {
 
-  struct transaction {
+  struct Transaction {
     uint amount;
     uint collateral;
     address sender;
     address receiver;
-    uint id;
     uint deadline;
     bool accepted;
     bool senderCanWithdraw;
@@ -15,108 +14,119 @@ contract Escrow {
     bool complete;
   }
 
-  transaction[] public transactions;
-  uint numTransactions = 0;
+  mapping(uint => Transaction) public transactions;
+  uint public txid;
 
   address owner;
 
   modifier isOwner(){
-    require(msg.sender == owner);
+    assert(msg.sender == owner);
     _;
   }
 
-  modifier isReceiver(uint id){
-    require(transactions[id].receiver == msg.sender);
+  modifier isReceiver(uint _id){
+    assert(transactions[_id].receiver == msg.sender);
     _;
   }
 
-  modifier isSender(uint id){
-    require(transactions[id].sender == msg.sender);
+  modifier isSender(uint _id){
+    assert(transactions[_id].sender == msg.sender);
     _;
   }
 
-  modifier isNotComplete(uint id){
-    require(!transactions[id].complete);
+  modifier isNotComplete(uint _id){
+    assert(!transactions[_id].complete);
     _;
   }
+
+  event TxCreated(string indexed _id);
+  event TxAccepted(bool indexed _accepted);
+  event TxFinalized(bool indexed _receiverCanWithdraw);
+  event TxCompleted(bool indexed _complete);
 
   constructor() public{
+    txid = 0;
     owner = msg.sender;
   }
 
-  function makeTransaction(address receiver, uint deadline, uint collateral) public payable {
+  function makeTransaction(address _receiver, uint _deadline, uint _collateral) public payable {
     require(msg.value != 0);
 
-    transactions.push(transaction({
+    transactions[txid] = Transaction({
       amount: msg.value,
-      collateral: collateral,
+      collateral: _collateral,
       sender: msg.sender,
-      receiver: receiver,
-      id: numTransactions,
-      deadline: deadline,
+      receiver: _receiver,
+      deadline: _deadline,
       accepted: false,
       senderCanWithdraw: true,
       receiverCanWithdraw: false,
       complete: false
-      }));
+      });
 
-    numTransactions++;
+    txid++;
   }
 
-  function acceptTransaction(uint id) public payable isReceiver(id) isNotComplete(id) {
-    require(!transactions[id].accepted && msg.value == transactions[id].collateral);
+  function acceptTransaction(uint _id) public payable isReceiver(_id) isNotComplete(_id) {
+    require(msg.value == transactions[_id].collateral);
+    assert(!transactions[_id].accepted);
 
-    transactions[id].accepted = true;
-    transactions[id].senderCanWithdraw = false;
-    transactions[id].deadline = now + (transactions[id].deadline * 1 days);
+    transactions[_id].accepted = true;
+    transactions[_id].senderCanWithdraw = false;
+    transactions[_id].deadline = now + (transactions[_id].deadline * 1 days);
+    emit TxAccepted(transactions[_id].accepted);
   }
 
-  function receiverWithdrawal(uint id) public isReceiver(id) isNotComplete(id) {
-    require(transactions[id].receiverCanWithdraw ||
-    ((now > transactions[id].deadline) && (transactions[id].accepted)));
+  function receiverWithdrawal(uint _id) public isReceiver(_id) isNotComplete(_id) {
+    require(transactions[_id].receiverCanWithdraw ||
+    ((now > transactions[_id].deadline)));
+    assert(transactions[_id].accepted);
 
-    uint collateral = transactions[id].collateral;
-    uint fee = transactions[id].amount / 500;
-    uint amount = transactions[id].amount - fee;
-    transactions[id].complete = true;
+    uint collateral = transactions[_id].collateral;
+    uint fee = transactions[_id].amount / 500;
+    uint amount = transactions[_id].amount - fee;
+    transactions[_id].complete = true;
 
     msg.sender.transfer(amount);
     owner.transfer(fee);
-    transactions[id].receiver.transfer(collateral);
+    transactions[_id].receiver.transfer(collateral);
+    emit TxCompleted(transactions[_id].complete);
   }
 
-  function senderWithdrawal(uint id) public isSender(id) isNotComplete(id) {
-    require(transactions[id].senderCanWithdraw);
+  function senderWithdrawal(uint _id) public isSender(_id) isNotComplete(_id) {
+    assert(transactions[_id].senderCanWithdraw);
 
-    uint amount = transactions[id].amount;
-    transactions[id].complete = true;
+    uint amount = transactions[_id].amount;
+    transactions[_id].complete = true;
 
-    if (transactions[id].accepted) {
-      uint collateral = transactions[id].collateral;
-      transactions[id].receiver.transfer(collateral);
+    if (transactions[_id].accepted) {
+      uint collateral = transactions[_id].collateral;
+      transactions[_id].receiver.transfer(collateral);
     }
 
     msg.sender.transfer(amount);
     }
 
-  function finalizeTransaction(uint id) public isSender(id) isNotComplete(id) {
-    require(!transactions[id].receiverCanWithdraw);
+  function finalizeTransaction(uint _id) public isSender(_id) isNotComplete(_id) {
+    assert(!transactions[_id].receiverCanWithdraw);
 
-    transactions[id].receiverCanWithdraw = true;
-    transactions[id].senderCanWithdraw = false;
+    transactions[_id].receiverCanWithdraw = true;
+    transactions[_id].senderCanWithdraw = false;
+    emit TxFinalized(transactions[_id].receiverCanWithdraw);
   }
 
-  function refundTransaction(uint id) public isReceiver(id) isNotComplete(id) {
-    require(transactions[id].accepted);
+  function refundTransaction(uint _id) public isReceiver(_id) isNotComplete(_id) {
+    assert(transactions[_id].accepted);
 
-    transactions[id].receiverCanWithdraw = false;
-    transactions[id].senderCanWithdraw = true;
+    transactions[_id].receiverCanWithdraw = false;
+    transactions[_id].senderCanWithdraw = true;
   }
 
-  function disputeTransaction(uint id, uint addedTime) public isSender(id) isNotComplete(id) {
-    require(now <= transactions[id].deadline && !transactions[id].receiverCanWithdraw);
+  function disputeTransaction(uint _id, uint addedTime) public isSender(_id) isNotComplete(_id) {
+    require(now <= transactions[_id].deadline);
+    assert(!transactions[_id].receiverCanWithdraw);
 
-    transactions[id].deadline += (addedTime * 1 days);
+    transactions[_id].deadline += (addedTime * 1 days);
   }
 
   function liquidateExcess() public isOwner {
@@ -125,6 +135,11 @@ contract Escrow {
 
   function getBalance() public view isOwner returns (uint) {
     return address(this).balance;
+  }
+
+  function kill() public isOwner {
+    owner.transfer(address(this).balance);
+    selfdestruct(owner);
   }
 
 }
