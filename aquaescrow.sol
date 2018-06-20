@@ -24,22 +24,22 @@ contract Escrow {
     _;
   }
 
-  modifier isReceiver(uint _id){
-    assert(transactions[_id].receiver == msg.sender);
+  modifier isReceiver(uint _txid){
+    assert(transactions[_txid].receiver == msg.sender);
     _;
   }
 
-  modifier isSender(uint _id){
-    assert(transactions[_id].sender == msg.sender);
+  modifier isSender(uint _txid){
+    assert(transactions[_txid].sender == msg.sender);
     _;
   }
 
-  modifier isNotComplete(uint _id){
-    assert(!transactions[_id].complete);
+  modifier isNotComplete(uint _txid){
+    assert(!transactions[_txid].complete);
     _;
   }
 
-  event TxCreated(string indexed _id);
+  event TxCreated(string indexed _txid);
   event TxAccepted(bool indexed _accepted);
   event TxFinalized(bool indexed _receiverCanWithdraw);
   event TxCompleted(bool indexed _complete);
@@ -51,6 +51,7 @@ contract Escrow {
 
   function makeTransaction(address _receiver, uint _deadline, uint _collateral) public payable {
     require(msg.value != 0);
+    txid++;
 
     transactions[txid] = Transaction({
       amount: msg.value,
@@ -63,77 +64,75 @@ contract Escrow {
       receiverCanWithdraw: false,
       complete: false
       });
-
-    txid++;
   }
 
-  function acceptTransaction(uint _id) public payable isReceiver(_id) isNotComplete(_id) {
-    require(msg.value == transactions[_id].collateral);
-    assert(!transactions[_id].accepted);
+  function acceptTx(uint _txid) public payable isReceiver(_txid) isNotComplete(_txid) {
+    require(msg.value == transactions[_txid].collateral);
+    assert(!transactions[_txid].accepted);
 
-    transactions[_id].accepted = true;
-    transactions[_id].senderCanWithdraw = false;
-    transactions[_id].deadline = now + (transactions[_id].deadline * 1 days);
-    emit TxAccepted(transactions[_id].accepted);
+    transactions[_txid].accepted = true;
+    transactions[_txid].senderCanWithdraw = false;
+    transactions[_txid].deadline = now + (transactions[_txid].deadline * 1 days);
+    emit TxAccepted(transactions[_txid].accepted);
   }
 
-  function receiverWithdrawal(uint _id) public isReceiver(_id) isNotComplete(_id) {
-    require(transactions[_id].receiverCanWithdraw ||
-    ((now > transactions[_id].deadline)));
-    assert(transactions[_id].accepted);
+  function receiverWithdrawal(uint _txid) public isReceiver(_txid) isNotComplete(_txid) {
+    require(transactions[_txid].receiverCanWithdraw ||
+    ((now > transactions[_txid].deadline)));
+    assert(transactions[_txid].accepted);
 
-    uint collateral = transactions[_id].collateral;
-    uint fee = transactions[_id].amount / 500;
-    uint amount = transactions[_id].amount - fee;
-    transactions[_id].complete = true;
+    uint collateral = transactions[_txid].collateral;
+    uint fee = transactions[_txid].amount / 500;
+    uint amount = transactions[_txid].amount - fee;
+    transactions[_txid].complete = true;
 
     msg.sender.transfer(amount);
     owner.transfer(fee);
-    transactions[_id].receiver.transfer(collateral);
-    emit TxCompleted(transactions[_id].complete);
+    transactions[_txid].receiver.transfer(collateral);
+    emit TxCompleted(transactions[_txid].complete);
   }
 
-  function senderWithdrawal(uint _id) public isSender(_id) isNotComplete(_id) {
-    assert(transactions[_id].senderCanWithdraw);
+  function senderWithdrawal(uint _txid) public isSender(_txid) isNotComplete(_txid) {
+    assert(transactions[_txid].senderCanWithdraw);
 
-    uint amount = transactions[_id].amount;
-    transactions[_id].complete = true;
+    uint amount = transactions[_txid].amount;
+    transactions[_txid].complete = true;
 
-    if (transactions[_id].accepted) {
-      uint collateral = transactions[_id].collateral;
-      transactions[_id].receiver.transfer(collateral);
+    if (transactions[_txid].accepted) {
+      uint collateral = transactions[_txid].collateral;
+      transactions[_txid].receiver.transfer(collateral);
     }
 
     msg.sender.transfer(amount);
     }
 
-  function finalizeTransaction(uint _id) public isSender(_id) isNotComplete(_id) {
-    assert(!transactions[_id].receiverCanWithdraw);
+  function finalizeTx(uint _txid) public isSender(_txid) isNotComplete(_txid) {
+    assert(!transactions[_txid].receiverCanWithdraw);
 
-    transactions[_id].receiverCanWithdraw = true;
-    transactions[_id].senderCanWithdraw = false;
-    emit TxFinalized(transactions[_id].receiverCanWithdraw);
+    transactions[_txid].receiverCanWithdraw = true;
+    transactions[_txid].senderCanWithdraw = false;
+    emit TxFinalized(transactions[_txid].receiverCanWithdraw);
   }
 
-  function refundTransaction(uint _id) public isReceiver(_id) isNotComplete(_id) {
-    assert(transactions[_id].accepted);
+  function refundTx(uint _txid) public isReceiver(_txid) isNotComplete(_txid) {
+    assert(transactions[_txid].accepted);
 
-    transactions[_id].receiverCanWithdraw = false;
-    transactions[_id].senderCanWithdraw = true;
+    transactions[_txid].receiverCanWithdraw = false;
+    transactions[_txid].senderCanWithdraw = true;
   }
 
-  function disputeTransaction(uint _id, uint addedTime) public isSender(_id) isNotComplete(_id) {
-    require(now <= transactions[_id].deadline);
-    assert(!transactions[_id].receiverCanWithdraw);
+  function disputeTx(uint _txid, uint addedTime) public isSender(_txid) isNotComplete(_txid) {
+    require(now <= transactions[_txid].deadline);
+    assert(!transactions[_txid].receiverCanWithdraw);
 
-    transactions[_id].deadline += (addedTime * 1 days);
+    transactions[_txid].deadline += (addedTime * 1 days);
   }
 
   function liquidateExcess() public isOwner {
     owner.transfer(address(this).balance);
   }
 
-  function getBalance() public view isOwner returns (uint) {
+  function getBal() public view isOwner returns (uint) {
     return address(this).balance;
   }
 
